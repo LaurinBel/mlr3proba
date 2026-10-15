@@ -102,8 +102,8 @@ PipeOpTaskSurvRegrPV = R6Class("PipeOpTaskSurvRegrPV",
       # Calculate PV:
 
       # for both S(t|x) and RMST(t|x) KM(t) is needed:
-      times = task$times() # give the time-points t
-      status = task$status() # give the censoring variables c
+      times = task$times()                                       # give the time-points t
+      status = task$status()                                     # give the censoring variables c
       global_KM_fit = survival::survfit(Surv(times, status) ~ 1) # calculate global KM (without LOO)
       # maybe transform to vector ?
       global_KM_surv = matrix(global_KM_fit$surv, ncol = 1)
@@ -114,7 +114,7 @@ PipeOpTaskSurvRegrPV = R6Class("PipeOpTaskSurvRegrPV",
       # is right-censored) are replaced by tau itself.
       # Getting KM(t) at time tau:
       # KM_tau = summary(global_KM_fit, times = tau)$surv
-      KM_tau = summary(global_KM_fit, time = tau)[6]$surv
+      KM_tau = summary(global_KM_fit, time = tau)$surv
 
       # Calculating PV:
       data = task$data()
@@ -167,6 +167,16 @@ PipeOpTaskSurvRegrPV = R6Class("PipeOpTaskSurvRegrPV",
          pv[i] = n * KM_tau[[1]] - (n - 1) * km[i]
       }
 
+      # Alternative way to calculate pv:
+
+      km = list()
+      pv = list()
+      for (i in seq(1:n)) {
+        km[[i]] = survival::survfit(Surv(times[-i], status[-i]) ~ 1)
+        km[[i]] = km[[i]]$surv[tau]
+        pv[[i]] = n * KM_tau - (n-1) * km[[i]]
+      }
+
       # If target is RMST(x|t) -> Andersen 2010:
       # TODO: WIE KANN MAN RMST ALS TARGET IDENTIFIZIEREN ?
       for(i in seq_along(1:n)) {
@@ -178,7 +188,8 @@ PipeOpTaskSurvRegrPV = R6Class("PipeOpTaskSurvRegrPV",
 
       # add pseudo-values to original data:
       data[["pv"]] = pv
-      # ...
+      # evtl.:
+      cbindlist(data, pv)
       # ...
 
       # create regression task:
@@ -196,23 +207,22 @@ PipeOpTaskSurvRegrPV = R6Class("PipeOpTaskSurvRegrPV",
       times = task$times()
       status = task$status()
       data = task$data()
-      pv = task$pv
-      survival_var = task$target_names[1]
-      rmst_var = task$target_names[2]
-      ci_var = task$target_names[3]
-      psv = self$param_set$values
-      tau = psv$tau
+      time_var = task$target_names[1]
+      status_var = task$target_names[2]
 
-      # -> Hier kommt es auf die Definition der target-names an --> gibt es nur ein oder mehrere
-      # Vermutung: 1.) Survival Probability; 2.) RMST; 3.) Cumulative-incidenc (CI)
+      # New data -> time and status variable are UNKNOWN !!!
+      # This are the target variables than here
       tau = checkmate::assertNumeric(tau, null.ok = FALSE)
 
-      data["pv"] = pv
-      # ...
-      # ...
+      # Updating censoring variable:
+      status[time > tau] = 0       # right-censoring
+      data[status_var] = factor(status, levels = c("0", "1")) # add levels to censoring variable
+
+      # Calculating the target "pv" is not possible as time and status variable are unknown !!!
       # Create regression task
       task_regr = TaskRegr$new(id = paste0(task$id, "_PV"), backend = data,
                                target = "pv")
+
       # keep original data
       # TODO: NACHSCHAUEN, OB DIES SO STIMMT
       data = list(
@@ -225,4 +235,3 @@ PipeOpTaskSurvRegrPV = R6Class("PipeOpTaskSurvRegrPV",
     }
   )
 )
-
